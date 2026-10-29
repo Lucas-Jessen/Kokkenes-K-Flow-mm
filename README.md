@@ -1,5 +1,7 @@
 # Køkkenets K-flow
 
+Omhandler projektet der laves omkring opsætning af indhentning af data fra mail, til excel ark.
+
 Pilot: ordrekvitteringer fra **AB Catering København** læses automatisk fra indbakken
 `indkoebkk@forenede.dk`, lægges i Excel (samme opsætning som det manuelle månedsark) og vises på en
 hjemmeside sammen med Kanpla-tal (kuverter + ekstrasalg), så man kan se, om køkkenet er i plus eller minus mod budget.
