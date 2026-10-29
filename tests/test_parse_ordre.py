@@ -10,7 +10,7 @@ CFG = json.loads((ROD / "config.json").read_text(encoding="utf-8"))
 
 class TestOrdrekvittering(unittest.TestCase):
     def test_ab_catering_31525653(self):
-        o = parse_ordrekvittering(ROD / "eksempler" / "indbakke" / "ordrekvittering_31525653.html", CFG["leverandoerer"])
+        o = parse_ordrekvittering(ROD / "eksempler" / "indbakke" / "ordrekvittering_31525653.html", CFG["kolonneregler"])
         self.assertEqual(o["ordre"], "31525653")
         self.assertEqual(o["leveringsdato"], "2026-10-27")
         self.assertEqual(o["kunde"], "39-69505002, FORENEDE SERVICE FRUGT")
@@ -29,7 +29,7 @@ class TestOrdrekvittering(unittest.TestCase):
                        "224918 Æble Ingrid Marie DK Øko 20 STK 3,42 68,40\nTotal 68,40\nAB Catering København",
                        encoding="utf-8")
         try:
-            o = parse_ordrekvittering(sti, CFG["leverandoerer"])
+            o = parse_ordrekvittering(sti, CFG["kolonneregler"])
         finally:
             sti.unlink()
         self.assertEqual(o["ordre"], "123456")

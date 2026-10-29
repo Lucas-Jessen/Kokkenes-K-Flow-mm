@@ -13,16 +13,9 @@
     {"konto": "21624", "navn": "Carlsberg"}
   ],
 
-  "leverandoerer": [
-    {
-      "navn": "AB Catering København",
-      "genkend": ["AB Catering"],
-      "afsender": ["kokkeneskoekken.dk"],
-      "kolonne_regler": [
-        {"kunde_indeholder": "FRUGT", "kolonne": "Frugt"}
-      ],
-      "standard_kolonne": "BC catering"
-    }
+  "kolonneregler": [
+    {"leverandoer": "AB Catering København", "genkend": "AB Catering", "kunde_indeholder": "FRUGT", "kolonne": "Frugt"},
+    {"leverandoer": "AB Catering København", "genkend": "AB Catering", "kunde_indeholder": "",      "kolonne": "BC catering"}
   ],
 
   "ekstrasalg": [

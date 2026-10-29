@@ -116,16 +116,16 @@ def _fra_tekst(tekst, ordre):
             ordre["total"] = tal(m.group(1))
 
 
-def find_leverandoer(tekst, afsender, leverandoerer):
-    for lev in leverandoerer:
-        if any(n.lower() in tekst.lower() for n in lev.get("genkend", [])):
-            return lev
-        if afsender and any(d.lower() in afsender.lower() for d in lev.get("afsender", [])):
-            return lev
+def find_regel(tekst, kunde, regler):
+    """Første kolonneregel hvor leverandøren genkendes i mailen og (hvis udfyldt) kunden indeholder teksten.
+    Samme logik som findRegel() i office-scripts/IndlaesOrdrekvittering.ts."""
+    for r in regler:
+        if (r.get("genkend") or r["leverandoer"]).lower() in tekst.lower() and                 (not r.get("kunde_indeholder") or r["kunde_indeholder"].lower() in kunde.lower()):
+            return r
     return None
 
 
-def parse_ordrekvittering(sti, leverandoerer):
+def parse_ordrekvittering(sti, regler):
     indhold, er_html, afsender = _laes_fil(sti)
     ordre = {"ordre": "", "leveringsdato": "", "kunde": "", "bruger": "", "leveringsbemaerkning": "",
              "linjer": [], "total": None, "kilde": Path(sti).name}
@@ -140,9 +140,9 @@ def parse_ordrekvittering(sti, leverandoerer):
     if not ordre["linjer"]:
         _fra_tekst(tekst, ordre)
 
-    lev = find_leverandoer(tekst, afsender, leverandoerer)
-    ordre["leverandoer"] = lev["navn"] if lev else "Ukendt"
-    ordre["kolonne"] = vaelg_kolonne(ordre, lev)
+    regel = find_regel(tekst + " " + afsender, ordre["kunde"], regler)
+    ordre["leverandoer"] = regel["leverandoer"] if regel else "Ukendt"
+    ordre["kolonne"] = regel["kolonne"] if regel else ""
 
     if ordre["leveringsdato"]:
         ordre["leveringsdato"] = datetime.strptime(ordre["leveringsdato"], "%d/%m/%Y").date().isoformat()
@@ -157,14 +157,7 @@ def parse_ordrekvittering(sti, leverandoerer):
         ordre["advarsler"].append("Ingen varelinjer fundet")
     if abs(sum_linjer - ordre["total"]) > 0.05:
         ordre["advarsler"].append(f"Sum af linjer ({sum_linjer}) matcher ikke total ({ordre['total']})")
+    if not regel:
+        ordre["advarsler"].append("Ukendt leverandør – tilføj den i Kolonneregler")
     return ordre
 
-
-def vaelg_kolonne(ordre, lev):
-    """Hvilken kolonne i månedsarket ordren skal stå i (fx Frugt for kunde '... FRUGT')."""
-    if not lev:
-        return None
-    for regel in lev.get("kolonne_regler", []):
-        if regel["kunde_indeholder"].lower() in ordre["kunde"].lower():
-            return regel["kolonne"]
-    return lev.get("standard_kolonne")

@@ -33,55 +33,49 @@ def _tabel(ws, navn, overskrifter, raekker, bredder):
     ws.freeze_panes = "A2"
 
 
-def _d(iso):
-    return date.fromisoformat(iso) if iso else None
+
+ORDRER_KOL = ["Ordre", "Leveringsdato", "Leverandør", "Kunde", "Bruger", "Leveringsbemærkning",
+              "Kolonne", "Antal linjer", "Total", "Kilde", "Indlæst", "Advarsler"]
+LINJE_KOL = ["Ordre", "Leveringsdato", "Leverandør", "Kunde", "Bruger", "Leveringsbemærkning",
+             "Varenr", "Vare", "Antal", "Enhed", "Enhedspris", "Linjepris"]
+REGEL_KOL = ["Leverandør", "Genkend i mail", "Kunde indeholder", "Kolonne"]
 
 
-def ordrer_ark(wb, ordrer):
+def kanpla_kol(cfg):
+    return ["Dato", "kuverter"] + [k["noegle"] for k in cfg["ekstrasalg"]]
+
+
+def ordrer_ark(wb):
     ws = wb.create_sheet("Ordrer")
-    _tabel(ws, "Ordrer",
-           ["Ordre", "Leveringsdato", "Leverandør", "Kunde", "Bruger", "Leveringsbemærkning",
-            "Kolonne", "Antal linjer", "Total", "Kildefil"],
-           [[o["ordre"], _d(o["leveringsdato"]), o["leverandoer"], o["kunde"], o["bruger"],
-             o["leveringsbemaerkning"], o["kolonne"], len(o["linjer"]), o["total"], o["kilde"]]
-            for o in ordrer],
-           [11, 13, 22, 38, 26, 22, 14, 11, 12, 30])
-    for c in ws["B"][1:]:
-        c.number_format = "dd-mm-yyyy"
-    for c in ws["I"][1:]:
-        c.number_format = KR
+    _tabel(ws, "Ordrer", ORDRER_KOL, [], [11, 13, 22, 38, 26, 22, 14, 11, 12, 24, 20, 30])
 
 
-def linje_ark(wb, ordrer):
+def linje_ark(wb):
     ws = wb.create_sheet("Ordrelinjer")
-    raekker = [[o["ordre"], _d(o["leveringsdato"]), o["leverandoer"], o["kunde"], o["bruger"],
-                o["leveringsbemaerkning"], l["varenr"], l["vare"], l["antal"], l["enhed"],
-                l["enhedspris"], l["linjepris"]]
-               for o in ordrer for l in o["linjer"]]
-    _tabel(ws, "Ordrelinjer",
-           ["Ordre", "Leveringsdato", "Leverandør", "Kunde", "Bruger", "Leveringsbemærkning",
-            "Varenr", "Vare", "Antal", "Enhed", "Enhedspris", "Linjepris"],
-           raekker, [11, 13, 22, 38, 26, 22, 9, 30, 8, 8, 12, 12])
-    for c in ws["B"][1:]:
-        c.number_format = "dd-mm-yyyy"
-    for col in ("K", "L"):
-        for c in ws[col][1:]:
-            c.number_format = KR
+    _tabel(ws, "Ordrelinjer", LINJE_KOL, [], [11, 13, 22, 38, 26, 22, 9, 30, 8, 8, 12, 12])
 
 
-def kanpla_ark(wb, kanpla, cfg):
+def kanpla_ark(wb, cfg):
     ws = wb.create_sheet("Kanpla")
-    noegler = ["kuverter"] + [k["noegle"] for k in cfg["ekstrasalg"]]
-    _tabel(ws, "Kanpla", ["Dato"] + noegler,
-           [[_d(d)] + [v.get(k, 0.0) for k in noegler] for d, v in sorted(kanpla.items())],
-           [12] + [16] * len(noegler))
-    for c in ws["A"][1:]:
-        c.number_format = "dd-mm-yyyy"
-    return {k: L(i + 2) for i, k in enumerate(noegler)}
+    kol = kanpla_kol(cfg)
+    _tabel(ws, "Kanpla", kol, [], [12] + [16] * (len(kol) - 1))
 
 
-def maaneds_ark(wb, aar, md, cfg, kanpla_kol):
-    ws = wb.create_sheet(f"{MDR[md - 1].capitalize()} {aar}", 0)
+def regel_ark(wb, cfg):
+    ws = wb.create_sheet("Kolonneregler")
+    _tabel(ws, "Kolonneregler", REGEL_KOL,
+           [[r["leverandoer"], r.get("genkend", ""), r.get("kunde_indeholder", ""), r["kolonne"]]
+            for r in cfg["kolonneregler"]], [26, 20, 18, 16])
+    ws["F1"] = "Reglerne læses oppefra og ned – første regel der passer, bestemmer kolonnen i månedsarket."
+    ws["F2"] = "'Genkend i mail' skal stå i mailen. 'Kunde indeholder' kan være tom (= alle kunder)."
+    ws["F3"] = "Kolonne skal stavet præcis som overskriften i månedsarket: " + ", ".join(
+        k["navn"] for k in cfg["indkoebs_kolonner"])
+    for c in ("F1", "F2", "F3"):
+        ws[c].font = Font(italic=True, size=9)
+
+
+def maaneds_ark(wb, aar, md, cfg):
+    ws = wb.create_sheet(f"{MDR[md - 1].capitalize()} {aar}")
     kol = cfg["indkoebs_kolonner"]
     eks = cfg["ekstrasalg"]
     n_dage = calendar.monthrange(aar, md)[1]
@@ -198,14 +192,15 @@ def maaneds_ark(wb, aar, md, cfg, kanpla_kol):
     ws.freeze_panes = ws.cell(F, 2)
 
 
-def byg_excel(sti, ordrer, kanpla, cfg, maaneder):
+def lav_skabelon(sti, cfg, maaneder):
+    """Tom arbejdsbog: tabellerne fyldes af Office Scriptet (mails) og Kanpla-importen."""
     wb = Workbook()
     wb.remove(wb.active)
-    ordrer = sorted(ordrer, key=lambda o: (o["leveringsdato"], str(o["ordre"])))
-    ordrer_ark(wb, ordrer)
-    linje_ark(wb, ordrer)
-    kanpla_kol = kanpla_ark(wb, kanpla, cfg)
     for aar, md in sorted(maaneder):
-        maaneds_ark(wb, aar, md, cfg, kanpla_kol)
+        maaneds_ark(wb, aar, md, cfg)
+    ordrer_ark(wb)
+    linje_ark(wb)
+    kanpla_ark(wb, cfg)
+    regel_ark(wb, cfg)
     wb.active = 0
     wb.save(sti)
