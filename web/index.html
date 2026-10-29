@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="da">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>K-flow kantine</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --kort: #fff; --tekst: #1d2330; --svag: #667085; --linje: #e4e7ec;
+    --accent: #2f5fa7; --budget: #9aa4b2; --plus: #1a7f4b; --minus: #c0392b; --plus-bg: #e6f4ec; --minus-bg: #fbeaea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14171c; --kort: #1d2128; --tekst: #e8eaed; --svag: #9aa3af; --linje: #2c323b;
+      --accent: #7fa8e8; --budget: #6b7480; --plus: #4cc38a; --minus: #ef6b5f; --plus-bg: #183327; --minus-bg: #3a1f1d; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--tekst); font: 15px/1.45 "Segoe UI", system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between;
+    padding: 20px 24px 8px; max-width: 1200px; margin: 0 auto; }
+  h1 { margin: 0; font-size: 22px; }
+  h1 small { font-weight: 400; color: var(--svag); font-size: 15px; margin-left: 6px; }
+  main { max-width: 1200px; margin: 0 auto; padding: 8px 24px 40px; }
+  select, input { font: inherit; color: inherit; background: var(--kort); border: 1px solid var(--linje); border-radius: 6px; padding: 5px 8px; }
+  .meta { color: var(--svag); font-size: 13px; }
+  .kpier { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin: 12px 0 16px; }
+  .kort { background: var(--kort); border: 1px solid var(--linje); border-radius: 10px; padding: 14px 16px; }
+  .kpi .lbl { color: var(--svag); font-size: 13px; }
+  .kpi .vaerdi { font-size: 24px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .kpi .under { font-size: 12px; color: var(--svag); }
+  .kpi.plus { background: var(--plus-bg); } .kpi.plus .vaerdi { color: var(--plus); }
+  .kpi.minus { background: var(--minus-bg); } .kpi.minus .vaerdi { color: var(--minus); }
+  h2 { font-size: 16px; margin: 0 0 10px; }
+  .gitter { display: grid; grid-template-columns: 2fr 1fr; gap: 12px; margin-bottom: 12px; }
+  @media (max-width: 800px) { .gitter { grid-template-columns: 1fr; } header, main { padding-left: 16px; padding-right: 16px; } }
+  svg { width: 100%; height: auto; display: block; }
+  svg text { fill: var(--svag); font-size: 11px; }
+  .forklaring { display: flex; gap: 16px; font-size: 13px; color: var(--svag); margin-top: 6px; }
+  .forklaring i { display: inline-block; width: 14px; height: 3px; vertical-align: middle; margin-right: 5px; border-radius: 2px; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--linje); }
+  th { font-size: 12px; color: var(--svag); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+  td.tal, th.tal { text-align: right; }
+  .rulle { overflow-x: auto; }
+  tr.ordre { cursor: pointer; }
+  tr.ordre:hover td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  tr.linjer td { background: var(--bg); padding: 0 8px 8px 28px; }
+  tr.linjer table td, tr.linjer table th { border: 0; padding: 3px 8px; font-size: 13px; }
+  .chip { font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--bg); border: 1px solid var(--linje); }
+  .pos { color: var(--plus); } .neg { color: var(--minus); }
+  .tom { color: var(--svag); }
+  .advarsel { color: var(--minus); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>K-flow <small id="kantine"></small></h1>
+  <div>
+    <label class="meta" for="maaned">Måned</label>
+    <select id="maaned"></select>
+    <span class="meta" id="opdateret"></span>
+  </div>
+</header>
+<main>
+  <div class="kpier" id="kpier"></div>
+
+  <div class="gitter">
+    <section class="kort">
+      <h2>Indkøb mod budget (akkumuleret)</h2>
+      <div id="graf"></div>
+      <div class="forklaring">
+        <span><i style="background:var(--accent)"></i>Indkøb (MTD)</span>
+        <span><i style="background:var(--budget)"></i>Løbende budget (kuverter × kuvertpris + vareforbrug ekstrasalg)</span>
+      </div>
+    </section>
+    <section class="kort">
+      <h2>Indkøb pr. kategori</h2>
+      <table id="kategorier"></table>
+    </section>
+  </div>
+
+  <section class="kort" style="margin-bottom:12px">
+    <h2>Dag for dag</h2>
+    <div class="rulle"><table id="dage"></table></div>
+  </section>
+
+  <section class="kort">
+    <h2 style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
+      Ordrer fra leverandører <input id="soeg" placeholder="Søg ordre, vare, kunde…" style="font-weight:400">
+    </h2>
+    <div class="rulle"><table id="ordrer"></table></div>
+  </section>
+</main>
+
+<script src="data.js"></script>
+<script>
+const D = window.KK_DATA;
+const kr = v => v == null ? "–" : v.toLocaleString("da-DK", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const kr0 = v => v.toLocaleString("da-DK", { maximumFractionDigits: 0 });
+const datoTxt = iso => new Date(iso + "T00:00").toLocaleDateString("da-DK", { weekday: "short", day: "numeric", month: "short" });
+const MDR = ["januar","februar","marts","april","maj","juni","juli","august","september","oktober","november","december"];
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+document.getElementById("kantine").textContent = D.kantine;
+document.getElementById("opdateret").textContent = "· opdateret " + D.opdateret.replace("T", " kl. ");
+const vaelg = document.getElementById("maaned");
+const maaneder = Object.keys(D.maaneder);
+vaelg.innerHTML = maaneder.map(m => `<option value="${m}">${MDR[+m.slice(5) - 1]} ${m.slice(0, 4)}</option>`).join("");
+vaelg.value = maaneder[maaneder.length - 1];
+vaelg.onchange = vis;
+document.getElementById("soeg").oninput = visOrdrer;
+
+function vis() {
+  const dage = D.maaneder[vaelg.value];
+  // seneste dag med data (indkøb eller kuverter)
+  const med = dage.filter(d => d.indkoeb_i_alt || d.kuverter);
+  const s = med[med.length - 1] || dage[0];
+  const kuvMtd = dage.filter(d => d.dato <= s.dato).reduce((a, d) => a + d.kuverter, 0);
+  const plus = s.diff >= 0;
+  const kpOk = s.kostpris_pr_kuvert != null && s.kostpris_pr_kuvert <= D.kuvertpris;
+  document.getElementById("kpier").innerHTML = [
+    ["Resultat mod budget", (plus ? "+" : "") + kr(s.diff) + " kr.", plus ? "Bestilt for lidt / under budget" : "Bestilt for meget / over budget", plus ? "plus" : "minus"],
+    ["Indkøb MTD", kr(s.mtd) + " kr.", "ex moms, til og med " + datoTxt(s.dato)],
+    ["Løbende budget", kr(s.loebende_budget) + " kr.", "kuverter × kr. " + kr(D.kuvertpris) + " + ekstrasalg"],
+    ["Kostpris pr. kuvert", s.kostpris_pr_kuvert == null ? "–" : "kr. " + kr(s.kostpris_pr_kuvert), "budget kr. " + kr(D.kuvertpris), kpOk ? "plus" : "minus"],
+    ["Kuverter (Kanpla)", kr0(kuvMtd), "gæster spist i huset denne måned"],
+  ].map(([l, v, u, k]) => `<div class="kort kpi ${k || ""}"><div class="lbl">${l}</div><div class="vaerdi">${v}</div><div class="under">${u}</div></div>`).join("");
+
+  graf(dage, s.dato);
+
+  const sum = {};
+  D.kolonner.forEach(k => sum[k] = dage.reduce((a, d) => a + d.indkoeb[k], 0));
+  const total = Object.values(sum).reduce((a, b) => a + b, 0);
+  document.getElementById("kategorier").innerHTML =
+    `<tr><th>Kategori</th><th class="tal">Kr. ex moms</th><th class="tal">Andel</th></tr>` +
+    D.kolonner.map(k => `<tr><td>${esc(k)}</td><td class="tal ${sum[k] ? "" : "tom"}">${kr(sum[k])}</td><td class="tal tom">${total ? Math.round(sum[k] / total * 100) + " %" : ""}</td></tr>`).join("") +
+    `<tr><th>I alt</th><th class="tal">${kr(total)}</th><th></th></tr>`;
+
+  document.getElementById("dage").innerHTML =
+    `<tr><th>Dato</th><th class="tal">Indkøb</th><th class="tal">MTD</th><th class="tal">Kuverter</th><th class="tal">Kuvert budget</th>
+     <th class="tal">Ekstrasalg inkl. moms</th><th class="tal">Løbende budget</th><th class="tal">Diff</th><th class="tal">Kr./kuvert</th></tr>` +
+    dage.filter(d => d.dato <= s.dato).map(d => `<tr>
+      <td>${datoTxt(d.dato)}</td><td class="tal">${kr(d.indkoeb_i_alt)}</td><td class="tal">${kr(d.mtd)}</td>
+      <td class="tal">${d.kuverter || "–"}</td><td class="tal">${kr(d.kuvert_budget)}</td><td class="tal">${kr(d.ekstrasalg_inkl)}</td>
+      <td class="tal">${kr(d.loebende_budget)}</td><td class="tal ${d.diff >= 0 ? "pos" : "neg"}">${kr(d.diff)}</td>
+      <td class="tal ${d.kostpris_pr_kuvert == null ? "" : d.kostpris_pr_kuvert <= D.kuvertpris ? "pos" : "neg"}">${kr(d.kostpris_pr_kuvert)}</td></tr>`).join("");
+  visOrdrer();
+}
+
+function graf(dage, til) {
+  const W = 720, H = 260, P = { l: 56, r: 12, t: 10, b: 26 };
+  const n = dage.length;
+  const vis = dage.filter(d => d.dato <= til);
+  const max = Math.max(1, ...vis.map(d => Math.max(d.mtd, d.loebende_budget))) * 1.08;
+  const x = i => P.l + (W - P.l - P.r) * i / (n - 1);
+  const y = v => H - P.b - (H - P.t - P.b) * v / max;
+  const sti = key => vis.map((d, i) => (i ? "L" : "M") + x(i).toFixed(1) + " " + y(d[key]).toFixed(1)).join(" ");
+  const trin = Math.pow(10, Math.floor(Math.log10(max / 4)));
+  const step = [1, 2, 5, 10].map(m => m * trin).find(s => max / s <= 6);
+  let g = "";
+  for (let v = 0; v <= max; v += step)
+    g += `<line x1="${P.l}" x2="${W - P.r}" y1="${y(v)}" y2="${y(v)}" stroke="var(--linje)"/><text x="${P.l - 6}" y="${y(v) + 4}" text-anchor="end">${kr0(v)}</text>`;
+  dage.forEach((d, i) => { if (i % 5 === 0 || i === n - 1) g += `<text x="${x(i)}" y="${H - 8}" text-anchor="middle">${i + 1}.</text>`; });
+  const sidst = vis.length - 1;
+  document.getElementById("graf").innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Akkumuleret indkøb mod budget">${g}
+    <path d="${sti("loebende_budget")}" fill="none" stroke="var(--budget)" stroke-width="2" stroke-dasharray="5 4"/>
+    <path d="${sti("mtd")}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>
+    ${sidst >= 0 ? `<circle cx="${x(sidst)}" cy="${y(vis[sidst].mtd)}" r="4" fill="var(--accent)"/>` : ""}
+  </svg>`;
+}
+
+function visOrdrer() {
+  const m = vaelg.value, q = document.getElementById("soeg").value.trim().toLowerCase();
+  const liste = D.ordrer.filter(o => o.leveringsdato.startsWith(m)).filter(o => !q ||
+    [o.ordre, o.kunde, o.leverandoer, o.kolonne, ...o.linjer.map(l => l.vare + " " + l.varenr)].join(" ").toLowerCase().includes(q));
+  document.getElementById("ordrer").innerHTML =
+    `<tr><th>Levering</th><th>Ordre</th><th>Leverandør</th><th>Kunde</th><th>Kategori</th><th class="tal">Linjer</th><th class="tal">Total</th></tr>` +
+    (liste.length ? liste.map((o, i) => `<tr class="ordre" data-i="${i}">
+        <td>${datoTxt(o.leveringsdato)}</td><td>${esc(o.ordre)}</td><td>${esc(o.leverandoer)}</td><td>${esc(o.kunde)}</td>
+        <td><span class="chip">${esc(o.kolonne || "?")}</span></td><td class="tal">${o.linjer.length}</td><td class="tal">${kr(o.total)}</td></tr>
+      <tr class="linjer" hidden><td colspan="7"><table>
+        <tr><th>Varenr</th><th>Vare</th><th class="tal">Antal</th><th>Enhed</th><th class="tal">Enhedspris</th><th class="tal">Linjepris</th></tr>
+        ${o.linjer.map(l => `<tr><td>${esc(l.varenr)}</td><td>${esc(l.vare)}</td><td class="tal">${l.antal}</td><td>${esc(l.enhed)}</td><td class="tal">${kr(l.enhedspris)}</td><td class="tal">${kr(l.linjepris)}</td></tr>`).join("")}
+      </table>
+      <div class="meta">Bruger: ${esc(o.bruger)}${o.leveringsbemaerkning ? " · Bemærkning: " + esc(o.leveringsbemaerkning) : ""} · Kilde: ${esc(o.kilde)}</div>
+      ${o.advarsler.map(a => `<div class="advarsel">⚠ ${esc(a)}</div>`).join("")}
+      </td></tr>`).join("") : `<tr><td colspan="7" class="tom">Ingen ordrer</td></tr>`);
+  document.querySelectorAll("tr.ordre").forEach(tr => tr.onclick = () => { tr.nextElementSibling.hidden = !tr.nextElementSibling.hidden; });
+}
+
+vis();
+</script>
+</body>
+</html>

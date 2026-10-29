@@ -1,0 +1,37 @@
+{
+  "kantine": "Forenede Service",
+  "kuvertpris": 25.94,
+  "moms_faktor": 1.25,
+
+  "indkoebs_kolonner": [
+    {"konto": "21602", "navn": "BC catering"},
+    {"konto": "21602", "navn": "Slagter & Fisk"},
+    {"konto": "21610", "navn": "Kaffe/The"},
+    {"konto": "21610", "navn": "Mælk"},
+    {"konto": "21608", "navn": "Frugt"},
+    {"konto": "21620", "navn": "Arrangementer"},
+    {"konto": "21624", "navn": "Carlsberg"}
+  ],
+
+  "leverandoerer": [
+    {
+      "navn": "AB Catering København",
+      "genkend": ["AB Catering"],
+      "afsender": ["kokkeneskoekken.dk"],
+      "kolonne_regler": [
+        {"kunde_indeholder": "FRUGT", "kolonne": "Frugt"}
+      ],
+      "standard_kolonne": "BC catering"
+    }
+  ],
+
+  "ekstrasalg": [
+    {"noegle": "moedeforplejning",      "navn": "Mødeforplejning",      "sats": 0.80},
+    {"noegle": "fredagsmorgenmad_antal", "navn": "Fredagsmorgenmad",    "sats": 1.00, "pris_pr_stk": 25.00},
+    {"noegle": "smart_fridge",          "navn": "Smart Fridge",         "sats": 0.70},
+    {"noegle": "kaffeordning",          "navn": "Kaffeordning",         "sats": 1.00},
+    {"noegle": "frugtordning",          "navn": "Frugtordning",         "sats": 1.00},
+    {"noegle": "special_arrangementer", "navn": "Special arrangementer", "sats": 1.00},
+    {"noegle": "boden_takeaway",        "navn": "Boden / Takeaway",     "sats": 1.00}
+  ]
+}
