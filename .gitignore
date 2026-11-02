@@ -1,9 +1,7 @@
+# Data holdes lokalt (repoet er offentligt)
+*.xlsx
+*.xls
+*.log
+output/
+~$*
 __pycache__/
-*.pyc
-~$*.xlsx
-.claude/settings.local.json
-# Rigtige mails/Kanpla-data og genererede filer holdes ude af repoet
-/indbakke/
-/data/
-/output/
-web/data.js
