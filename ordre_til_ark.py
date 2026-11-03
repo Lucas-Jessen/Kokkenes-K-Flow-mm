@@ -24,6 +24,7 @@ from pathlib import Path
 import win32com.client
 
 import kanpla
+import rapport
 
 ROD = Path(__file__).resolve().parent
 ARK = ROD / "Kokkenes k ark.xlsx"
@@ -366,6 +367,12 @@ def main():
                 print(f"Kanpla: {n} dage opdateret for {kanpla.LOKATION}")
             except Exception as e:
                 print(f"Kanpla FEJL: {e}")
+
+        if not a.mappe:
+            try:
+                rapport.skriv_html(rapport.hent_data(wb))
+            except Exception as e:
+                print(f"Rapport FEJL: {e}")
     finally:
         if egen:
             wb.Close(False)
