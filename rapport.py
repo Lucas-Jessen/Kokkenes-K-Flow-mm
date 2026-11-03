@@ -20,6 +20,7 @@ TOLERANCE = 0.05          # inden for ±5 % af budgettet tæller som "på budget
 
 # Kolonner i månedsfanerne (1 = A)
 A, I, P, Q, AD = 1, 9, 16, 17, 30
+KAT = range(2, 9)          # B..H: leverandørkolonnerne, der tilsammen er "Indkøb i alt"
 
 
 def tal(v):
@@ -43,11 +44,13 @@ def hent_data(wb):
             if r[A - 1] in (None, ""):
                 continue
             dage.append({"dag": int(r[A - 1]), "indkoeb": round(tal(r[I - 1]), 2), "kuverter": int(tal(r[P - 1])),
-                         "budget": round(tal(r[Q - 1]) + tal(r[AD - 1]), 2), "vareforbrug": round(tal(r[AD - 1]), 2)})
+                         "budget": round(tal(r[Q - 1]) + tal(r[AD - 1]), 2), "vareforbrug": round(tal(r[AD - 1]), 2),
+                         "kat": [round(tal(r[c - 1]), 2) for c in KAT]})
         maaneder.append({"nr": nr, "navn": md, "dage": dage})
     kuvertpris = tal(wb.Worksheets(MDR[0]).Range("C4").Value)
     kantine = wb.Worksheets(MDR[0]).Range("B3").Value or ""
-    return {"kuvertpris": kuvertpris, "kantine": kantine, "tolerance": TOLERANCE,
+    kolonner = [str(wb.Worksheets(MDR[0]).Cells(8, c).Value or "") for c in KAT]
+    return {"kuvertpris": kuvertpris, "kantine": kantine, "tolerance": TOLERANCE, "kolonner": kolonner,
             "aar": datetime.now().year, "opdateret": datetime.now().strftime("%d-%m-%Y kl. %H:%M"),
             "maaneder": maaneder}
 
@@ -100,9 +103,11 @@ h1 { font-size: 24px; margin: 0; font-weight: 650; letter-spacing: -0.01em; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 20px; margin-bottom: 16px; }
 h2 { font-size: 16px; margin: 0 0 4px; font-weight: 600; }
 .note { color: var(--ink-2); font-size: 13px; margin: 0 0 14px; }
-.months { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
-.months button { font: inherit; font-size: 14px; border: 1px solid var(--border); background: var(--surface);
-  color: var(--ink-2); border-radius: 999px; padding: 5px 14px; cursor: pointer; }
+/* Månedsknapperne er diagrammets x-akse: samme margen som diagrammet (L = 58, R = 8), én kolonne pr. søjle */
+.months { display: grid; grid-template-columns: repeat(12, 1fr); gap: 4px; padding: 0 8px 0 58px; margin-top: 6px; }
+.months button { font: inherit; font-size: 13px; border: 1px solid var(--border); background: var(--surface);
+  color: var(--ink-2); border-radius: 999px; padding: 5px 0; cursor: pointer; min-width: 0;
+  overflow: hidden; text-overflow: clip; white-space: nowrap; }
 .months button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
 .months button:disabled { opacity: .4; cursor: default; }
 .hero { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; }
@@ -134,6 +139,14 @@ th:first-child, td:first-child { text-align: left; }
 th { color: var(--ink-2); font-weight: 600; position: sticky; top: 0; background: var(--surface); }
 .tbl { max-height: 420px; overflow: auto; }
 .pos { color: var(--critical); } .neg { color: var(--under); }
+.kat { position: relative; display: grid; grid-template-columns: minmax(110px, 190px) 1fr; row-gap: 8px; column-gap: 12px; align-items: center; }
+.kat .lbl { font-size: 13px; color: var(--ink-2); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kat .track { position: relative; height: 26px; cursor: default; }
+.kat .zero { position: absolute; top: -4px; bottom: -4px; width: 1px; background: var(--ink-3); }
+.kat .bar { position: absolute; top: 4px; height: 18px; min-width: 2px; }
+.kat .bar.op { border-radius: 0 4px 4px 0; } .kat .bar.ned { border-radius: 4px 0 0 4px; }
+.kat .val { position: absolute; top: 4px; font-size: 12px; line-height: 18px; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.kat .row:hover .lbl, .kat .track:hover ~ * { color: var(--ink); }
 details summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
 @media (max-width: 720px) { .tiles { grid-template-columns: repeat(2, 1fr); } .hero .big { font-size: 28px; } }
 </style>
@@ -153,13 +166,19 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 14px; }
     <p class="note">Indkøb minus budget. Budget = kuverter × kuvertpris + vareforbrug fra ekstrasalg. Over nul: købt for meget. Under nul: købt for lidt.</p>
     <div class="legend"><span><i style="background:var(--over)"></i>Over budget</span><span><i style="background:var(--under)"></i>Under budget</span><span><i style="background:var(--neutral)"></i>Inden for ±<span id="tol"></span> %</span></div>
     <div class="chart" id="maanedChart"></div>
+    <div class="months" id="months" role="group" aria-label="Vælg måned"></div>
   </section>
-
-  <div class="months" id="months" role="group" aria-label="Vælg måned"></div>
 
   <section class="card">
     <div class="hero" id="hero"></div>
     <div class="tiles" id="tiles"></div>
+  </section>
+
+  <section class="card">
+    <h2 id="katTitel">Hvor kommer forskellen fra?</h2>
+    <p class="note">Hvad hver kolonne ville have kostet, hvis måneden havde ramt budgettet med den normale fordeling mellem kolonnerne (<span id="katRef"></span>), sammenlignet med hvad der faktisk er købt. Søjlerne lagt sammen giver månedens samlede forskel.</p>
+    <div class="kat" id="katChart"></div>
+    <p class="note" id="katKonklusion" style="margin:14px 0 0"></p>
   </section>
 
   <section class="card">
@@ -191,7 +210,8 @@ const M = D.maaneder.map(m => {
   const s = k => m.dage.reduce((a, d) => a + d[k], 0);
   const indkoeb = s("indkoeb"), budget = s("budget"), kuverter = s("kuverter"), vf = s("vareforbrug");
   const diff = indkoeb - budget;
-  return { ...m, indkoeb, budget, kuverter, diff, pr: kuverter ? (indkoeb - vf) / kuverter : null,
+  const kat = (D.kolonner || []).map((_, i) => m.dage.reduce((a, d) => a + d.kat[i], 0));
+  return { ...m, indkoeb, budget, kuverter, diff, kat, pr: kuverter ? (indkoeb - vf) / kuverter : null,
            har: indkoeb > 0 || kuverter > 0, rel: budget ? diff / budget : null };
 });
 const status = m => m.rel === null ? { t: "Intet budget", c: "var(--neutral)", s: "–" }
@@ -209,12 +229,12 @@ function showTip(box, html, x, y) { const t = tip(box); t.innerHTML = html; t.st
 function hideTip(box) { tip(box).style.opacity = 0; }
 function ticks(min, max, n = 5) { const span = max - min || 1, step0 = span / n, mag = 10 ** Math.floor(Math.log10(step0));
   const step = [1, 2, 2.5, 5, 10].map(f => f * mag).find(s => span / s <= n) || mag * 10; const out = [];
-  for (let v = Math.ceil(min / step) * step; v <= max + 1e-9; v += step) out.push(+v.toFixed(6)); return out; }
+  for (let v = Math.floor(min / step) * step; v < max + step - 1e-9; v += step) out.push(+v.toFixed(6)); return out; }
 
 // Diagram 1: afvigelse pr. måned (divergerende søjler)
 function maanedChart() {
   const box = document.getElementById("maanedChart"); box.innerHTML = "";
-  const W = Math.max(box.clientWidth, 300), H = 260, L = 58, R = 8, T = 12, B = 26;
+  const W = Math.max(box.clientWidth, 300), H = 240, L = 58, R = 8, T = 12, B = 6;
   const vals = M.map(m => m.har ? m.diff : 0);
   let lo = Math.min(0, ...vals), hi = Math.max(0, ...vals); const tk = ticks(lo, hi); lo = Math.min(lo, tk[0]); hi = Math.max(hi, tk[tk.length - 1]);
   const y = v => T + (hi - v) / (hi - lo || 1) * (H - T - B);
@@ -224,7 +244,8 @@ function maanedChart() {
   const bw = (W - L - R) / 12;
   M.forEach((m, i) => {
     const x = L + i * bw, cx = x + bw / 2;
-    el("text", { x: cx, y: H - 8, "text-anchor": "middle" }, svg).textContent = bw < 40 ? m.navn.slice(0, 1) : m.navn.slice(0, 3);
+    const knap = document.querySelector(`#months button[data-nr="${m.nr}"]`);   // knapperne er x-aksens etiketter
+    if (knap) knap.textContent = bw >= 84 ? m.navn : bw >= 34 ? m.navn.slice(0, 3) : m.navn.slice(0, 1);
     if (!m.har) return;
     const st = status(m), y0 = y(0), y1 = y(m.diff), h = Math.max(Math.abs(y1 - y0), 1), up = m.diff >= 0;
     const w = Math.min(bw * 0.56, 44), r = Math.min(4, h / 2);
@@ -289,6 +310,53 @@ function tabel(m) {
   t.innerHTML = html;
 }
 
+// Normal fordeling mellem kolonnerne: hele måneder (alle med data undtagen indeværende)
+const nuMd = new Date().getMonth() + 1;
+const REF = M.filter(m => m.har && m.indkoeb > 0 && m.nr !== nuMd);
+const refInd = REF.reduce((a, m) => a + m.indkoeb, 0);
+const ANDEL = D.kolonner.map((_, i) => refInd ? REF.reduce((a, m) => a + m.kat[i], 0) / refInd : 0);
+const kortNavn = s => s.replace(/\s*\(.*\)\s*$/, "");
+
+function katChart(m) {
+  const box = document.getElementById("katChart"); box.innerHTML = "";
+  document.getElementById("katTitel").textContent = "Hvor kommer forskellen fra? – " + m.navn;
+  document.getElementById("katRef").textContent = REF.length
+    ? "beregnet ud fra " + (REF.length === 1 ? REF[0].navn : REF[0].navn.toLowerCase() + "–" + REF[REF.length - 1].navn.toLowerCase())
+    : "ingen hele måneder at sammenligne med endnu";
+  const konk = document.getElementById("katKonklusion");
+  if (!m.har || !m.budget) { konk.textContent = "Ingen data for " + m.navn.toLowerCase() + " endnu."; return; }
+  const rk = D.kolonner.map((navn, i) => { const brugt = m.kat[i], ved = m.budget * ANDEL[i];
+    return { navn, brugt, ved, diff: brugt - ved, andel: m.indkoeb ? brugt / m.indkoeb : 0, normal: ANDEL[i] }; })
+    .filter(r => r.brugt || r.ved).sort((a, b) => b.diff - a.diff);
+  // Nullinjen placeres efter forholdet mellem plus og minus; samme kr. giver samme længde på begge sider
+  const maxPos = Math.max(0, ...rk.map(r => r.diff)), maxNeg = Math.max(0, ...rk.map(r => -r.diff));
+  const z = 0.08 + 0.84 * (maxNeg / ((maxPos + maxNeg) || 1));
+  const span = 0.7;    // resten er plads til beløbet ved enden af søjlen
+  const skala = span * Math.min(maxPos ? (1 - z) / maxPos : Infinity, maxNeg ? z / maxNeg : Infinity);
+  rk.forEach(r => {
+    const lbl = document.createElement("div"); lbl.className = "lbl"; lbl.textContent = kortNavn(r.navn); lbl.title = r.navn;
+    const tr = document.createElement("div"); tr.className = "track";
+    const w = Math.abs(r.diff) * (isFinite(skala) ? skala : 0) * 100;
+    const bar = document.createElement("div"); bar.className = "bar " + (r.diff >= 0 ? "op" : "ned");
+    bar.style.background = Math.abs(r.diff) < m.budget * 0.005 ? "var(--neutral)" : r.diff > 0 ? "var(--over)" : "var(--under)";
+    bar.style.width = w + "%"; bar.style.left = (r.diff >= 0 ? z * 100 : z * 100 - w) + "%";
+    const val = document.createElement("div"); val.className = "val"; val.textContent = (r.diff > 0 ? "+" : "") + kr(r.diff);
+    if (r.diff >= 0) val.style.left = `calc(${z * 100 + w}% + 6px)`; else val.style.right = `calc(${100 - z * 100 + w}% + 6px)`;
+    const zero = document.createElement("div"); zero.className = "zero"; zero.style.left = z * 100 + "%";
+    tr.append(zero, bar, val);
+    tr.addEventListener("mousemove", e => { const b = box.getBoundingClientRect();
+      showTip(box, `<b>${r.navn}</b><div class="row"><span>Købt</span><span>${kr(r.brugt)}</span></div><div class="row"><span>Ved budget</span><span>${kr(r.ved)}</span></div><div class="row"><span>Forskel</span><span>${(r.diff > 0 ? "+" : "") + kr(r.diff)}</span></div><div class="row"><span>Andel af indkøb</span><span>${pct(r.andel).replace("+", "")} (normalt ${pct(r.normal).replace("+", "")})</span></div>`,
+        e.clientX - b.left, e.clientY - b.top); });
+    tr.addEventListener("mouseleave", () => hideTip(box));
+    box.append(lbl, tr);
+  });
+  const top = rk.filter(r => r.diff > 0).slice(0, 2);
+  konk.textContent = m.diff > 0 && top.length
+    ? `${m.navn} ligger ${kr(m.diff)} over budget. Største bidrag: ` + top.map(r => `${kortNavn(r.navn)} (${(r.diff > 0 ? "+" : "") + kr(r.diff)})`).join(" og ") + "."
+    : m.diff < 0 ? `${m.navn} ligger ${kr(-m.diff)} under budget.` + (top.length ? ` Over det normale: ` + top.map(r => `${kortNavn(r.navn)} (+${kr(r.diff)})`).join(" og ") + "." : "")
+    : `${m.navn} ligger på budget.`;
+}
+
 function hero(m) {
   const st = status(m);
   document.getElementById("hero").innerHTML = m.har
@@ -309,10 +377,10 @@ function vaelg(nr) {
   valgt = nr; const m = M[nr - 1];
   document.querySelectorAll("#months button").forEach(b => b.setAttribute("aria-pressed", +b.dataset.nr === nr));
   document.getElementById("dagTitel").textContent = "Løbende indkøb mod løbende budget – " + m.navn;
-  hero(m); dagChart(m); tabel(m); maanedChart();
+  hero(m); katChart(m); dagChart(m); tabel(m); maanedChart();
 }
 const mb = document.getElementById("months");
-M.forEach(m => { const b = document.createElement("button"); b.textContent = m.navn; b.dataset.nr = m.nr; b.disabled = !m.har;
+M.forEach(m => { const b = document.createElement("button"); b.textContent = m.navn; b.title = m.navn; b.dataset.nr = m.nr; b.disabled = !m.har;
   b.addEventListener("click", () => vaelg(m.nr)); mb.appendChild(b); });
 const nu = new Date().getMonth() + 1;
 let rt, bredde = 0; new ResizeObserver(e => { const w = e[0].contentRect.width; if (Math.abs(w - bredde) < 2) return; bredde = w;
