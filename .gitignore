@@ -5,3 +5,6 @@
 output/
 ~$*
 __pycache__/
+
+# API-nøgler (må aldrig på GitHub)
+kanpla_api_noegle.txt

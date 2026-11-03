@@ -23,6 +23,8 @@ from pathlib import Path
 
 import win32com.client
 
+import kanpla
+
 ROD = Path(__file__).resolve().parent
 ARK = ROD / "Kokkenes k ark.xlsx"
 POSTKASSE = "indkoebkk@forenede.dk"
@@ -354,6 +356,16 @@ def main():
                 m.UnRead = False
                 m.Save()
         print(f"{len(nye)} nye ordrer, {dubletter} fandtes allerede, {fejl} kunne ikke læses")
+
+        # Spisende gæster fra Kanpla – en fejl her må ikke stoppe ordrerne
+        if not a.mappe and kanpla.FANE in [ws.Name for ws in wb.Worksheets]:
+            try:
+                n = kanpla.opdater_ark(wb)
+                if n:
+                    wb.Save()
+                print(f"Kanpla: {n} dage opdateret for {kanpla.LOKATION}")
+            except Exception as e:
+                print(f"Kanpla FEJL: {e}")
     finally:
         if egen:
             wb.Close(False)
