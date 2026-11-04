@@ -9,3 +9,6 @@ __pycache__/
 
 # API-nøgler (må aldrig på GitHub)
 kanpla_api_noegle.txt
+
+# Microsoft Graph login (må aldrig på GitHub)
+graph.json

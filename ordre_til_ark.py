@@ -10,7 +10,8 @@ Brug:
   python ordre_til_ark.py --opsaet           # opret fanen Ordreliste + formler i månedsfanerne (kun én gang)
   python ordre_til_ark.py --vis-postkasser   # vis hvilke postkasser Outlook kan se
 
-Kræver klassisk Outlook med adgang til postkassen, Excel og pakken pywin32.
+Mails hentes via Microsoft Graph, hvis graph.json findes (se graph_mail.py) – ellers via klassisk Outlook.
+Kræver Excel og pakken pywin32.
 """
 import argparse
 import email
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import win32com.client
 
+import graph_mail
 import kanpla
 import rapport
 
@@ -50,9 +52,9 @@ FANE = "Ordreliste"
 # ---------- Læs mailen ----------
 
 def tal(s):
-    """'1.234,56' -> 1234.56"""
-    s = s.strip().replace(".", "").replace(" ", "").replace(",", ".")
-    return float(s) if s else 0.0
+    """'1.234,56' -> 1234.56. Tekst omkring tallet ignoreres ('Kg. pris 214,97' -> 214.97)."""
+    m = re.search(r"-?\d[\d.]*(?:,\d+)?", s.replace(" ", ""))
+    return float(m[0].replace(".", "").replace(",", ".")) if m else 0.0
 
 
 class _TabelParser(HTMLParser):
@@ -109,8 +111,10 @@ def parse_ordrekvittering(html_eller_tekst):
             if noegle in HOVED and r[0].strip().endswith(":"):
                 o[HOVED[noegle]] = celler[1] if len(celler) > 1 else ""
             elif re.fullmatch(r"\d{4,}", celler[0]) and len(celler) >= 6:
+                # Vægtvarer har "Kg. pris 214,97" som enhedspris; linjeprisen er den faktiske pris
+                enhed = celler[3] + (" (kg-pris)" if re.search(r"kg", celler[4], re.I) else "")
                 o["linjer"].append(dict(zip(("varenr", "vare", "antal", "enhed", "enhedspris", "linjepris"),
-                                            celler[:2] + [tal(celler[2]), celler[3], tal(celler[4]), tal(celler[5])])))
+                                            celler[:2] + [tal(celler[2]), enhed, tal(celler[4]), tal(celler[5])])))
             elif celler[0].lower() == "total" and len(celler) >= 2:
                 o["total"] = tal(celler[-1])
     else:
@@ -181,7 +185,15 @@ def mails_fra_outlook():
         # Direkte fra AB – eller videresendt, hvor AB's adresse står i mailen ("Fra: kundeservice@ab-kbh.dk")
         if getattr(m, "Class", None) == 43 and (AFSENDER.lower() in afsender(m).lower()
                                                  or AFSENDER.lower() in (m.Body or "").lower()):
-            yield m.HTMLBody or m.Body, m.ReceivedTime.strftime("%Y-%m-%d %H:%M"), m.Subject, m
+            yield m.HTMLBody or m.Body, m.ReceivedTime.strftime("%Y-%m-%d %H:%M"), m.Subject, _markoer(m)
+
+
+def _markoer(m):
+    def markér_læst():
+        if m.UnRead:
+            m.UnRead = False
+            m.Save()
+    return markér_læst
 
 
 def afsender(m):
@@ -333,15 +345,25 @@ def main():
         kendte = eksisterende_ordrer(wb)
         nye, dubletter, fejl = [], 0, 0
         laest = []                                   # mails der markeres som læst, når arket er gemt
-        kilde = mails_fra_mappe(a.mappe) if a.mappe else mails_fra_outlook()
-        for html, modtaget, navn, mail in kilde:
-            o = parse_ordrekvittering(html)
+        if a.mappe:
+            kilde = mails_fra_mappe(a.mappe)
+        elif graph_mail.konfigureret():              # Microsoft Graph: ingen Outlook, ingen pop-ups
+            kilde = graph_mail.mails(POSTKASSE, AFSENDER, DAGE_TILBAGE)
+        else:
+            kilde = mails_fra_outlook()
+        for html, modtaget, navn, markér_læst in kilde:
+            try:
+                o = parse_ordrekvittering(html)
+            except Exception as e:                   # én mærkelig mail må ikke stoppe resten
+                fejl += 1
+                print(f"  SPRUNGET OVER: {navn} – kunne ikke læses ({e})")
+                continue
             if not o["ordre"] or not o["linjer"]:
                 fejl += 1                            # forbliver ulæst, så nogen kigger på den
                 print(f"  SPRUNGET OVER: {navn} – ingen ordrenummer/varelinjer fundet")
                 continue
-            if mail is not None:
-                laest.append(mail)
+            if markér_læst is not None:
+                laest.append(markér_læst)
             if o["ordre"] in kendte:
                 dubletter += 1
                 continue
@@ -352,10 +374,8 @@ def main():
         skriv_ordrer(wb, nye)
         if nye:
             wb.Save()
-        for m in laest:
-            if m.UnRead:
-                m.UnRead = False
-                m.Save()
+        for markér in laest:
+            markér()
         print(f"{len(nye)} nye ordrer, {dubletter} fandtes allerede, {fejl} kunne ikke læses")
 
         # Spisende gæster fra Kanpla – en fejl her må ikke stoppe ordrerne
