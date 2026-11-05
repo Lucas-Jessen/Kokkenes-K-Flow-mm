@@ -1,4 +1,4 @@
-"""Henter ordrekvitteringer fra kundeservice@ab-kbh.dk i indkoebkk@forenede.dk (Outlook) og skriver varelinjerne ind i fanen "Ordreliste" i Kokkenes k ark.xlsx.
+"""Henter ordrekvitteringer fra kundeservice@ab-kbh.dk i indkoebkk@forenede.dk og skriver varelinjerne ind i fanen "Ordreliste" i Kokkenes k ark.xlsx.
 
 Månedsfanerne henter selv beløbene fra Ordreliste med formler (pr. leveringsdato og kolonne).
 Ordrenummeret bruges som kontrol: en ordre, der allerede står i Ordreliste, skrives ikke igen.
@@ -8,10 +8,10 @@ Brug:
   python ordre_til_ark.py                    # læs postkassen og opdatér arket
   python ordre_til_ark.py --mappe <mappe>    # læs gemte mails (.msg/.eml/.html) i stedet for postkassen
   python ordre_til_ark.py --opsaet           # opret fanen Ordreliste + formler i månedsfanerne (kun én gang)
-  python ordre_til_ark.py --vis-postkasser   # vis hvilke postkasser Outlook kan se
+  python ordre_til_ark.py --vis-postkasser   # vis postkasserne i Outlook-profilen
 
-Mails hentes via Microsoft Graph, hvis graph.json findes (se graph_mail.py) – ellers via klassisk Outlook.
-Kræver Excel og pakken pywin32.
+Postkassen læses med Extended MAPI, så Outlook ikke viser sikkerheds-pop-ups. Postkassen skal være
+tilføjet i klassisk Outlook, men Outlook behøver ikke være åbent. Kræver Excel og pakken pywin32.
 """
 import argparse
 import email
@@ -24,7 +24,6 @@ from pathlib import Path
 
 import win32com.client
 
-import graph_mail
 import kanpla
 import rapport
 
@@ -154,56 +153,90 @@ def parse_ordrekvittering(html_eller_tekst):
 
 
 # ---------- Hent mails ----------
+# Postkassen læses med Extended MAPI (Outlooks lavniveau-adgang i pywin32) i stedet for Outlooks objektmodel.
+# Objektmodellen beder om lov via en pop-up, når et andet program læser mails; det gør MAPI ikke.
 
-def find_indbakke(ns):
-    """Postkassen som ekstra konto i Outlook, ellers som delt postkasse."""
-    def norm(s):                                     # "Indkøb KK" -> "indkoebkk"
-        s = s.lower().replace("æ", "ae").replace("ø", "oe").replace("å", "aa")
-        return re.sub(r"[^a-z0-9]", "", s)
-    for st in ns.Stores:
-        if norm(POSTKASSE.split("@")[0]) == norm(st.DisplayName):
-            try:
-                return st.GetDefaultFolder(6)        # 6 = Indbakke
-            except Exception:
-                continue                             # Outlook kan vise samme postkasse to gange
-    r = ns.CreateRecipient(POSTKASSE)
-    r.Resolve()
-    return ns.GetSharedDefaultFolder(r, 6)
+PR_HTML = 0x10130102                    # mailens HTML (binær, i mailens tegnsæt)
+PR_INTERNET_CPID = 0x3FDE0003           # tegnsættet for PR_HTML
+PR_SENDER_SMTP_ADDRESS = 0x5D01001F     # afsenderens SMTP-adresse, også for interne afsendere
 
 
-def mails_fra_outlook():
-    ns = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
+def _norm(s):                           # "Indkøb KK" -> "indkoebkk"
+    s = s.lower().replace("æ", "ae").replace("ø", "oe").replace("å", "aa")
+    return re.sub(r"[^a-z0-9]", "", s)
+
+
+def _mapi_session():
+    from win32com.mapi import mapi
+    mapi.MAPIInitialize(None)
+    return mapi.MAPILogonEx(0, "", None, mapi.MAPI_EXTENDED | mapi.MAPI_USE_DEFAULT | mapi.MAPI_NO_MAIL)
+
+
+def postkasser(session):
+    """[(navn, entryid)] for alle postkasser i Outlook-profilen."""
+    from win32com.mapi import mapitags as T
+    t = session.GetMsgStoresTable(0)
+    t.SetColumns((T.PR_DISPLAY_NAME_W, T.PR_ENTRYID), 0)
+    return [(navn, eid) for (_, navn), (_, eid) in t.QueryRows(100, 0)]
+
+
+def find_indbakke(session):
+    """Indbakken i postkassen, hvis navn svarer til POSTKASSE ("Indkøb KK" ~ indkoebkk@...)."""
+    from win32com.mapi import mapi
+    kandidater = [eid for navn, eid in postkasser(session) if _norm(navn) == _norm(POSTKASSE.split("@")[0])]
+    for eid in kandidater:                  # Outlook kan vise samme postkasse to gange
+        try:
+            store = session.OpenMsgStore(0, eid, None, mapi.MDB_NO_DIALOG | mapi.MAPI_BEST_ACCESS)
+            ind_eid, _ = store.GetReceiveFolder("IPM.Note", 0)
+            return store.OpenEntry(ind_eid, None, mapi.MAPI_BEST_ACCESS)
+        except Exception:
+            continue
+    sys.exit(f"Kan ikke åbne postkassen {POSTKASSE}. Den skal være tilføjet i klassisk Outlook.\n"
+             f"Postkasser i Outlook-profilen: {', '.join(n for n, _ in postkasser(session))}")
+
+
+def _html(besked):
+    import pythoncom
     try:
-        indbakke = find_indbakke(ns)
-    except Exception as e:
-        sys.exit(f"Kan ikke åbne postkassen {POSTKASSE} i Outlook ({e}).\n"
-                 f"Tilføj postkassen i Outlook (Filer › Kontoindstillinger), og kør igen.\n"
-                 f"Postkasser Outlook kan se: {', '.join(s.DisplayName for s in ns.Stores)}")
-    fra = (datetime.now() - timedelta(days=DAGE_TILBAGE)).strftime("%d-%m-%Y %H:%M")
-    items = indbakke.Items.Restrict(f"[ReceivedTime] >= '{fra}'")
-    for m in list(items):
-        # Direkte fra AB – eller videresendt, hvor AB's adresse står i mailen ("Fra: kundeservice@ab-kbh.dk")
-        if getattr(m, "Class", None) == 43 and (AFSENDER.lower() in afsender(m).lower()
-                                                 or AFSENDER.lower() in (m.Body or "").lower()):
-            yield m.HTMLBody or m.Body, m.ReceivedTime.strftime("%Y-%m-%d %H:%M"), m.Subject, _markoer(m)
-
-
-def _markoer(m):
-    def markér_læst():
-        if m.UnRead:
-            m.UnRead = False
-            m.Save()
-    return markér_læst
-
-
-def afsender(m):
-    """SMTP-adressen på afsenderen (også når Exchange gemmer den som intern adresse)."""
-    try:
-        if m.SenderEmailType == "EX":
-            return m.Sender.GetExchangeUser().PrimarySmtpAddress or ""
-        return m.SenderEmailAddress or ""
+        strm = besked.OpenProperty(PR_HTML, pythoncom.IID_IStream, 0, 0)
     except Exception:
-        return ""
+        return ""                           # mail uden HTML-del
+    data = b""
+    while chunk := strm.Read(65536):
+        data += chunk
+    cp = besked.GetProps((PR_INTERNET_CPID,), 0)[1][0][1]
+    kodning = "utf-8" if not isinstance(cp, int) or cp == 65001 else f"cp{cp}"
+    try:
+        return data.decode(kodning, errors="replace")
+    except LookupError:
+        return data.decode("utf-8", errors="replace")
+
+
+def mails_fra_postkasse():
+    """Giver (html, modtaget, emne, markér_læst) for mails fra – eller videresendt fra – AFSENDER."""
+    from win32com.mapi import mapi, mapitags as T
+    indbakke = find_indbakke(_mapi_session())
+    tabel = indbakke.GetContentsTable(0)
+    tabel.SetColumns((T.PR_ENTRYID, T.PR_SUBJECT_W, PR_SENDER_SMTP_ADDRESS, T.PR_MESSAGE_DELIVERY_TIME), 0)
+    graense = datetime.now() - timedelta(days=DAGE_TILBAGE)
+    while rows := tabel.QueryRows(100, 0):
+        for (_, eid), (_, emne), (_, fra), (_, tid) in rows:
+            if not hasattr(tid, "astimezone"):
+                continue
+            modtaget = tid.astimezone().replace(tzinfo=None)
+            if modtaget < graense:
+                continue
+            besked = indbakke.OpenEntry(eid, None, mapi.MAPI_BEST_ACCESS)
+            html = _html(besked)
+            # Direkte fra AB – eller videresendt, hvor AB's adresse står i mailen ("Fra: kundeservice@ab-kbh.dk")
+            if AFSENDER.lower() in str(fra).lower() or AFSENDER.lower() in html.lower():
+                yield html, modtaget.strftime("%Y-%m-%d %H:%M"), str(emne), _markoer(besked)
+
+
+def _markoer(besked):
+    def markér_læst():
+        besked.SetReadFlag(0)               # 0 = markér som læst
+    return markér_læst
 
 
 def mails_fra_mappe(mappe):
@@ -328,8 +361,7 @@ def main():
     a = ap.parse_args()
 
     if a.vis_postkasser:
-        ns = win32com.client.Dispatch("Outlook.Application").GetNamespace("MAPI")
-        print("\n".join(s.DisplayName for s in ns.Stores))
+        print("\n".join(navn for navn, _ in postkasser(_mapi_session())))
         return
 
     xl, wb, egen = aabn_ark(a.ark)
@@ -345,22 +377,16 @@ def main():
         kendte = eksisterende_ordrer(wb)
         nye, dubletter, fejl = [], 0, 0
         laest = []                                   # mails der markeres som læst, når arket er gemt
-        if a.mappe:
-            kilde = mails_fra_mappe(a.mappe)
-        elif graph_mail.konfigureret():              # Microsoft Graph: ingen Outlook, ingen pop-ups
-            kilde = graph_mail.mails(POSTKASSE, AFSENDER, DAGE_TILBAGE)
-        else:
-            kilde = mails_fra_outlook()
+        kilde = mails_fra_mappe(a.mappe) if a.mappe else mails_fra_postkasse()
         for html, modtaget, navn, markér_læst in kilde:
             try:
                 o = parse_ordrekvittering(html)
+                grund = "" if o["ordre"] and o["linjer"] else "ingen ordrenummer/varelinjer fundet"
             except Exception as e:                   # én mærkelig mail må ikke stoppe resten
-                fejl += 1
-                print(f"  SPRUNGET OVER: {navn} – kunne ikke læses ({e})")
-                continue
-            if not o["ordre"] or not o["linjer"]:
-                fejl += 1                            # forbliver ulæst, så nogen kigger på den
-                print(f"  SPRUNGET OVER: {navn} – ingen ordrenummer/varelinjer fundet")
+                grund = f"kunne ikke læses ({e})"
+            if grund:
+                fejl += 1                            # mailen forbliver ulæst, så nogen kigger på den
+                print(f"  SPRUNGET OVER: {navn} – {grund}")
                 continue
             if markér_læst is not None:
                 laest.append(markér_læst)
