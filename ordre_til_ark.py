@@ -159,6 +159,7 @@ def parse_ordrekvittering(html_eller_tekst):
 PR_HTML = 0x10130102                    # mailens HTML (binær, i mailens tegnsæt)
 PR_INTERNET_CPID = 0x3FDE0003           # tegnsættet for PR_HTML
 PR_SENDER_SMTP_ADDRESS = 0x5D01001F     # afsenderens SMTP-adresse, også for interne afsendere
+MDB_ONLINE = 0x100                      # åbn postkassen på serveren i stedet for den lokale kopi
 
 
 def _norm(s):                           # "Indkøb KK" -> "indkoebkk"
@@ -184,13 +185,15 @@ def find_indbakke(session):
     """Indbakken i postkassen, hvis navn svarer til POSTKASSE ("Indkøb KK" ~ indkoebkk@...)."""
     from win32com.mapi import mapi
     kandidater = [eid for navn, eid in postkasser(session) if _norm(navn) == _norm(POSTKASSE.split("@")[0])]
-    for eid in kandidater:                  # Outlook kan vise samme postkasse to gange
-        try:
-            store = session.OpenMsgStore(0, eid, None, mapi.MDB_NO_DIALOG | mapi.MAPI_BEST_ACCESS)
-            ind_eid, _ = store.GetReceiveFolder("IPM.Note", 0)
-            return store.OpenEntry(ind_eid, None, mapi.MAPI_BEST_ACCESS)
-        except Exception:
-            continue
+    # Online direkte mod Exchange først: den lokale kopi (cached mode) opdateres kun, mens Outlook kører
+    for flag in (MDB_ONLINE, 0):
+        for eid in kandidater:              # Outlook kan vise samme postkasse to gange
+            try:
+                store = session.OpenMsgStore(0, eid, None, mapi.MDB_NO_DIALOG | mapi.MAPI_BEST_ACCESS | flag)
+                ind_eid, _ = store.GetReceiveFolder("IPM.Note", 0)
+                return store.OpenEntry(ind_eid, None, mapi.MAPI_BEST_ACCESS)
+            except Exception:
+                continue
     sys.exit(f"Kan ikke åbne postkassen {POSTKASSE}. Den skal være tilføjet i klassisk Outlook.\n"
              f"Postkasser i Outlook-profilen: {', '.join(n for n, _ in postkasser(session))}")
 
